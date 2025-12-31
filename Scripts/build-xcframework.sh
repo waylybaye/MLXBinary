@@ -2,10 +2,11 @@
 set -eo pipefail
 
 # ============================================================================
-# MLXBinary XCFramework Build Script
+# MLXBinary XCFramework Build Script (完整打包版)
+# ============================================================================
+# 构建 mlx-swift-lm 的 XCFramework，包含所有依赖
 # ============================================================================
 
-# 配置
 MLX_SWIFT_LM_VERSION="${1:-main}"
 MLX_SWIFT_LM_REPO="https://github.com/ml-explore/mlx-swift-lm.git"
 
@@ -13,9 +14,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="${PROJECT_ROOT}/.build-xcframework"
 OUTPUT_DIR="${PROJECT_ROOT}/output"
-DERIVED_DATA="${HOME}/Library/Developer/Xcode/DerivedData/MLXBinary-Agent"
+DERIVED_DATA="${BUILD_DIR}/DerivedData"
 
 MODULES="MLXLMCommon MLXLLM MLXVLM"
+
+# 所有依赖模块（按依赖顺序）
+ALL_DEPS="_NumericsShims RealModule ComplexModule Numerics InternalCollectionsUtilities OrderedCollections Jinja Hub Tokenizers Generation Models Cmlx MLX MLXRandom MLXNN MLXOptimizers MLXFast MLXLinalg"
 
 # 颜色输出
 log_info() { echo -e "\033[0;34m[INFO]\033[0m $1"; }
@@ -80,16 +84,32 @@ build_all_platforms() {
   log_success "所有平台构建完成"
 }
 
+get_deps_for_module() {
+  local module="$1"
+  case "$module" in
+    MLXLMCommon)
+      echo "$ALL_DEPS MLXLMCommon"
+      ;;
+    MLXLLM)
+      echo "$ALL_DEPS MLXLMCommon MLXLLM"
+      ;;
+    MLXVLM)
+      echo "$ALL_DEPS MLXLMCommon MLXVLM"
+      ;;
+  esac
+}
+
 collect_build_artifacts() {
   log_info "收集构建产物..."
 
   for module in $MODULES; do
     log_info "  收集 $module 产物..."
 
-    # 创建模块目录
     mkdir -p "$BUILD_DIR/libs/$module"
     mkdir -p "$BUILD_DIR/headers/$module"
     mkdir -p "$BUILD_DIR/modules/$module"
+
+    local deps=$(get_deps_for_module "$module")
 
     # 收集每个平台的静态库
     for platform in macos ios ios-simulator; do
@@ -99,18 +119,29 @@ collect_build_artifacts() {
         ios-simulator) product_dir="Release-iphonesimulator" ;;
       esac
 
-      local obj_file="$DERIVED_DATA/Build/Products/$product_dir/${module}.o"
-      if [[ -f "$obj_file" ]]; then
+      local obj_files=""
+      local obj_count=0
+
+      for dep in $deps; do
+        local obj_file="$DERIVED_DATA/Build/Products/$product_dir/${dep}.o"
+        if [[ -f "$obj_file" ]]; then
+          obj_files="$obj_files $obj_file"
+          obj_count=$((obj_count + 1))
+        fi
+      done
+
+      if [[ $obj_count -gt 0 ]]; then
         local lib_file="$BUILD_DIR/libs/$module/${module}-${platform}.a"
-        libtool -static -o "$lib_file" "$obj_file" 2>/dev/null
-        log_success "    创建 ${module}-${platform}.a"
+        libtool -static -o "$lib_file" $obj_files 2>/dev/null
+        local size=$(du -h "$lib_file" | cut -f1)
+        log_success "    创建 ${module}-${platform}.a ($obj_count 模块, $size)"
       fi
     done
 
-    # 创建简单的头文件
+    # 创建头文件
     cat > "$BUILD_DIR/headers/$module/${module}.h" << EOF
 // ${module} - MLXBinary XCFramework
-// Auto-generated header file
+// 包含 mlx-swift-lm 及所有依赖
 
 #import <Foundation/Foundation.h>
 
@@ -168,23 +199,12 @@ create_xcframeworks() {
 
     local args=""
 
-    # macOS
-    local macos_lib="$BUILD_DIR/libs/$module/${module}-macos.a"
-    if [[ -f "$macos_lib" ]]; then
-      args="$args -library $macos_lib -headers $BUILD_DIR/headers/$module"
-    fi
-
-    # iOS
-    local ios_lib="$BUILD_DIR/libs/$module/${module}-ios.a"
-    if [[ -f "$ios_lib" ]]; then
-      args="$args -library $ios_lib -headers $BUILD_DIR/headers/$module"
-    fi
-
-    # iOS Simulator
-    local sim_lib="$BUILD_DIR/libs/$module/${module}-ios-simulator.a"
-    if [[ -f "$sim_lib" ]]; then
-      args="$args -library $sim_lib -headers $BUILD_DIR/headers/$module"
-    fi
+    for platform in macos ios ios-simulator; do
+      local lib_file="$BUILD_DIR/libs/$module/${module}-${platform}.a"
+      if [[ -f "$lib_file" ]]; then
+        args="$args -library $lib_file -headers $BUILD_DIR/headers/$module"
+      fi
+    done
 
     if [[ -n "$args" ]]; then
       rm -rf "$OUTPUT_DIR/${module}.xcframework"
@@ -206,7 +226,9 @@ create_xcframeworks() {
         local xcf_modules_dir="$OUTPUT_DIR/${module}.xcframework/${slice_dir}/Modules"
         if [[ -d "$OUTPUT_DIR/${module}.xcframework/${slice_dir}" ]]; then
           mkdir -p "$xcf_modules_dir/${module}.swiftmodule"
-          cp -r "$BUILD_DIR/modules/$module/${platform}/"* "$xcf_modules_dir/${module}.swiftmodule/" 2>/dev/null || true
+          if [[ -d "$BUILD_DIR/modules/$module/${platform}" ]]; then
+            cp -r "$BUILD_DIR/modules/$module/${platform}/"* "$xcf_modules_dir/${module}.swiftmodule/" 2>/dev/null || true
+          fi
         fi
       done
 
@@ -231,7 +253,8 @@ package_and_checksum() {
       checksum=$(swift package compute-checksum "${module}.xcframework.zip")
       echo "$checksum" > "${module}.xcframework.zip.sha256"
 
-      log_success "  ${module}: $checksum"
+      local size=$(du -h "${module}.xcframework.zip" | cut -f1)
+      log_success "  ${module}: $size - $checksum"
     fi
   done
 
@@ -247,9 +270,9 @@ print_results() {
   echo "输出目录: $OUTPUT_DIR"
   echo ""
   echo "文件列表:"
-  ls -lh "$OUTPUT_DIR" 2>/dev/null || echo "  (无文件)"
+  ls -lh "$OUTPUT_DIR" 2>/dev/null | grep -v "\.sha256" || echo "  (无文件)"
   echo ""
-  echo "校验和:"
+  echo "校验和 (用于更新 Package.swift):"
   for module in $MODULES; do
     local checksum_file="$OUTPUT_DIR/${module}.xcframework.zip.sha256"
     if [[ -f "$checksum_file" ]]; then
@@ -257,17 +280,17 @@ print_results() {
     fi
   done
   echo ""
-  echo "请将这些校验和更新到 Package.swift 中"
   echo "============================================================================"
 }
 
 main() {
   echo ""
   echo "============================================================================"
-  echo "MLXBinary XCFramework Build Script"
+  echo "MLXBinary XCFramework Build Script (完整打包版)"
   echo "============================================================================"
   echo "版本: $MLX_SWIFT_LM_VERSION"
   echo "输出目录: $OUTPUT_DIR"
+  echo "包含所有依赖: mlx-swift, swift-transformers 等"
   echo "============================================================================"
   echo ""
 
