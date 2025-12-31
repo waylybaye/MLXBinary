@@ -4,7 +4,7 @@
 import PackageDescription
 
 // 版本配置
-let version = "0.3.0"
+let version = "2.29.2"
 let baseURL = "https://github.com/waylybaye/MLXBinary/releases/download"
 
 let package = Package(
