@@ -33,12 +33,12 @@ let package = Package(
     .binaryTarget(
       name: "MLXLLM",
       url: "\(baseURL)/\(version)/MLXLLM.xcframework.zip",
-      checksum: "da97397c25ba64a81f130fe3a45b240d5dd9b116bd41cd98a1319751e885417c"
+      checksum: "d4550a8baed0d1056c0addd8d15356d387c00faff54d5b9c93b91363339eb39f"
     ),
     .binaryTarget(
       name: "MLXVLM",
       url: "\(baseURL)/\(version)/MLXVLM.xcframework.zip",
-      checksum: "243accb6199db19fc713d1f47af8da553acb3ee00060bc8575bb0c512ca898c6"
+      checksum: "bce20ced0c78c23e38767ecf9fc025103215a04fa1d332f8a34daaf1082d03e7"
     ),
 
     // ===== Wrapper Targets =====
