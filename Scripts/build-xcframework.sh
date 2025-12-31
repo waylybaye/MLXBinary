@@ -261,6 +261,39 @@ package_and_checksum() {
   log_success "打包完成"
 }
 
+update_package_swift() {
+  log_info "更新 Package.swift checksums..."
+
+  local package_file="$PROJECT_ROOT/Package.swift"
+
+  if [[ ! -f "$package_file" ]]; then
+    log_error "Package.swift 不存在"
+    return 1
+  fi
+
+  for module in $MODULES; do
+    local checksum_file="$OUTPUT_DIR/${module}.xcframework.zip.sha256"
+    if [[ -f "$checksum_file" ]]; then
+      local new_checksum
+      new_checksum=$(cat "$checksum_file")
+
+      # 使用 sed 替换对应模块的 checksum
+      # 匹配模式: name: "MODULE" 后面几行内的 checksum: "..."
+      if [[ "$(uname)" == "Darwin" ]]; then
+        # macOS sed
+        sed -i '' -E "/(name: \"${module}\"|\"${module}.xcframework.zip\")/,/checksum:/ s/(checksum: \")[^\"]*(\")/\1${new_checksum}\2/" "$package_file"
+      else
+        # GNU sed
+        sed -i -E "/(name: \"${module}\"|\"${module}.xcframework.zip\")/,/checksum:/ s/(checksum: \")[^\"]*(\")/\1${new_checksum}\2/" "$package_file"
+      fi
+
+      log_success "  ${module}: ${new_checksum}"
+    fi
+  done
+
+  log_success "Package.swift 更新完成"
+}
+
 print_results() {
   echo ""
   echo "============================================================================"
@@ -272,7 +305,7 @@ print_results() {
   echo "文件列表:"
   ls -lh "$OUTPUT_DIR" 2>/dev/null | grep -v "\.sha256" || echo "  (无文件)"
   echo ""
-  echo "校验和 (用于更新 Package.swift):"
+  echo "Checksums (已自动更新到 Package.swift):"
   for module in $MODULES; do
     local checksum_file="$OUTPUT_DIR/${module}.xcframework.zip.sha256"
     if [[ -f "$checksum_file" ]]; then
@@ -300,6 +333,7 @@ main() {
   collect_build_artifacts
   create_xcframeworks
   package_and_checksum
+  update_package_swift
   print_results
 }
 

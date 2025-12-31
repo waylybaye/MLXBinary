@@ -28,7 +28,7 @@ let package = Package(
     .binaryTarget(
       name: "MLXLMCommon",
       url: "\(baseURL)/\(version)/MLXLMCommon.xcframework.zip",
-      checksum: "991cf53d9f0ee82d0f2f723b2b9c5c89f99f7b015fe123db1d46f5dc2b50d2ea"
+      checksum: "7424eff08ecd7ef0ac781bc1c06b24667d90b4268a3ab87c94450a068b51afc8"
     ),
     .binaryTarget(
       name: "MLXLLM",
