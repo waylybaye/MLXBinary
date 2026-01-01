@@ -160,7 +160,7 @@ collect_build_artifacts() {
       fi
     done
 
-    # 创建头文件
+    # 创建头文件（使用唯一文件名避免冲突）
     cat > "$BUILD_DIR/headers/$module/${module}.h" << EOF
 // ${module} - MLXBinary XCFramework
 // 包含 mlx-swift-lm 及所有依赖
@@ -174,15 +174,16 @@ FOUNDATION_EXPORT double ${module}VersionNumber;
 FOUNDATION_EXPORT const unsigned char ${module}VersionString[];
 EOF
 
-    # 创建主模块的 module.modulemap（非 framework 格式）
-    cat > "$BUILD_DIR/headers/$module/module.modulemap" << EOF
+    # 创建模块特定的 modulemap（使用唯一文件名如 MLXLMCommon.modulemap 避免冲突）
+    cat > "$BUILD_DIR/headers/$module/${module}.modulemap" << EOF
 module ${module} {
     header "${module}.h"
     export *
 }
 EOF
 
-    # 收集 C 模块头文件（仅 MLXLMCommon 包含公共头文件，避免重复冲突）
+    # 收集 C 模块头文件（仅 MLXLMCommon 包含公共头文件）
+    # Cmlx 和 _NumericsShims 已有唯一目录名，直接放在 Headers 根目录
     if [[ "$module" == "MLXLMCommon" ]]; then
       # Cmlx 头文件
       local cmlx_include="$DERIVED_DATA/SourcePackages/checkouts/mlx-swift/Source/Cmlx/include"
@@ -313,8 +314,8 @@ create_xcframeworks() {
 
         local xcf_slice="$OUTPUT_DIR/${module}.xcframework/${slice_dir}"
         if [[ -d "$xcf_slice" ]]; then
-          # SPM 只将 Headers 目录添加到 -I 搜索路径
-          # 所以需要将 swiftmodule 放到 Headers 目录中
+          # SPM 将 Headers 目录添加到 -I 搜索路径
+          # swiftmodule 直接放 Headers（它们有唯一名称如 MLXLMCommon.swiftmodule）
           local xcf_headers_dir="$xcf_slice/Headers"
 
           # 复制主模块的 swiftmodule 到 Headers 目录
