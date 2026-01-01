@@ -21,6 +21,9 @@ MODULES="MLXLMCommon MLXLLM MLXVLM"
 # 所有依赖模块（按依赖顺序）
 ALL_DEPS="_NumericsShims RealModule ComplexModule Numerics InternalCollectionsUtilities OrderedCollections Jinja Hub Tokenizers Generation Models Cmlx MLX MLXRandom MLXNN MLXOptimizers MLXFast MLXLinalg"
 
+# Swift 依赖模块（需要复制 swiftmodule）
+SWIFT_DEPS="RealModule ComplexModule Numerics InternalCollectionsUtilities OrderedCollections Jinja Hub Tokenizers Generation Models MLX MLXRandom MLXNN MLXOptimizers MLXFast MLXLinalg"
+
 # 颜色输出
 log_info() { echo -e "\033[0;34m[INFO]\033[0m $1"; }
 log_success() { echo -e "\033[0;32m[SUCCESS]\033[0m $1"; }
@@ -77,9 +80,10 @@ build_platform() {
 build_all_platforms() {
   log_info "开始构建所有平台..."
 
-  build_platform "macos" "generic/platform=macOS"
-  build_platform "ios" "generic/platform=iOS"
-  build_platform "ios-simulator" "generic/platform=iOS Simulator"
+  # 测试阶段：只构建 arm64 macOS
+  build_platform "macos" "platform=macOS,arch=arm64"
+  # build_platform "ios" "generic/platform=iOS"
+  # build_platform "ios-simulator" "generic/platform=iOS Simulator"
 
   log_success "所有平台构建完成"
 }
@@ -95,6 +99,21 @@ get_deps_for_module() {
       ;;
     MLXVLM)
       echo "$ALL_DEPS MLXLMCommon MLXVLM"
+      ;;
+  esac
+}
+
+get_swift_deps_for_module() {
+  local module="$1"
+  case "$module" in
+    MLXLMCommon)
+      echo "$SWIFT_DEPS MLXLMCommon"
+      ;;
+    MLXLLM)
+      echo "$SWIFT_DEPS MLXLMCommon MLXLLM"
+      ;;
+    MLXVLM)
+      echo "$SWIFT_DEPS MLXLMCommon MLXVLM"
       ;;
   esac
 }
@@ -131,10 +150,10 @@ collect_build_artifacts() {
       done
 
       if [[ $obj_count -gt 0 ]]; then
-        local lib_file="$BUILD_DIR/libs/$module/${module}-${platform}.a"
+        local lib_file="$BUILD_DIR/libs/$module/lib${module}-${platform}.a"
         libtool -static -o "$lib_file" $obj_files 2>/dev/null
         local size=$(du -h "$lib_file" | cut -f1)
-        log_success "    创建 ${module}-${platform}.a ($obj_count 模块, $size)"
+        log_success "    创建 lib${module}-${platform}.a ($obj_count 模块, $size)"
       fi
     done
 
@@ -152,11 +171,75 @@ FOUNDATION_EXPORT double ${module}VersionNumber;
 FOUNDATION_EXPORT const unsigned char ${module}VersionString[];
 EOF
 
-    # 收集 swiftmodule 文件
+    # 创建主模块的 module.modulemap（非 framework 格式）
+    cat > "$BUILD_DIR/headers/$module/module.modulemap" << EOF
+module ${module} {
+    header "${module}.h"
+    export *
+}
+EOF
+
+    # 收集 C 模块头文件（仅 MLXLMCommon 包含公共头文件，避免重复冲突）
+    if [[ "$module" == "MLXLMCommon" ]]; then
+      # Cmlx 头文件
+      local cmlx_include="$DERIVED_DATA/SourcePackages/checkouts/mlx-swift/Source/Cmlx/include"
+      if [[ -d "$cmlx_include" ]]; then
+        mkdir -p "$BUILD_DIR/headers/$module/Cmlx"
+        cp -r "$cmlx_include/"* "$BUILD_DIR/headers/$module/Cmlx/"
+        chmod -R u+w "$BUILD_DIR/headers/$module/Cmlx/"
+
+        # 创建自定义 modulemap
+        cat > "$BUILD_DIR/headers/$module/Cmlx/module.modulemap" << 'MODULEMAP'
+module Cmlx [system] {
+    textual header "mlx.h"
+    textual header "mlx/c/mlx.h"
+    textual header "mlx/c/array.h"
+    textual header "mlx/c/closure.h"
+    textual header "mlx/c/compile.h"
+    textual header "mlx/c/device.h"
+    textual header "mlx/c/distributed.h"
+    textual header "mlx/c/distributed_group.h"
+    textual header "mlx/c/error.h"
+    textual header "mlx/c/export.h"
+    textual header "mlx/c/fast.h"
+    textual header "mlx/c/fft.h"
+    textual header "mlx/c/half.h"
+    textual header "mlx/c/io.h"
+    textual header "mlx/c/io_types.h"
+    textual header "mlx/c/linalg.h"
+    textual header "mlx/c/map.h"
+    textual header "mlx/c/memory.h"
+    textual header "mlx/c/metal.h"
+    textual header "mlx/c/ops.h"
+    textual header "mlx/c/optional.h"
+    textual header "mlx/c/random.h"
+    textual header "mlx/c/stream.h"
+    textual header "mlx/c/string.h"
+    textual header "mlx/c/transforms.h"
+    textual header "mlx/c/transforms_impl.h"
+    textual header "mlx/c/vector.h"
+    textual header "mlx/c/version.h"
+    export *
+}
+MODULEMAP
+        log_success "    复制 Cmlx 头文件"
+      fi
+
+      # _NumericsShims 头文件
+      local numerics_include="$DERIVED_DATA/SourcePackages/checkouts/swift-numerics/Sources/_NumericsShims/include"
+      if [[ -d "$numerics_include" ]]; then
+        mkdir -p "$BUILD_DIR/headers/$module/_NumericsShims"
+        cp -r "$numerics_include/"* "$BUILD_DIR/headers/$module/_NumericsShims/"
+        chmod -R u+w "$BUILD_DIR/headers/$module/_NumericsShims/"
+        log_success "    复制 _NumericsShims 头文件"
+      fi
+    fi
+
+    # 收集 swiftmodule 文件（主模块）
     for platform in macos ios ios-simulator; do
       case "$platform" in
         macos)
-          archs="arm64 x86_64"
+          archs="arm64"  # arm64 only for testing
           triple_suffix="macos"
           build_config="Release"
           ;;
@@ -177,7 +260,7 @@ EOF
         if [[ -d "$module_base" ]]; then
           mkdir -p "$BUILD_DIR/modules/$module/${platform}"
 
-          for ext in swiftmodule swiftdoc abi.json; do
+          for ext in swiftmodule swiftdoc swiftinterface abi.json; do
             local src_file="$module_base/${module}.${ext}"
             if [[ -f "$src_file" ]]; then
               cp "$src_file" "$BUILD_DIR/modules/$module/${platform}/${arch}-apple-${triple_suffix}.${ext}" 2>/dev/null || true
@@ -200,7 +283,7 @@ create_xcframeworks() {
     local args=""
 
     for platform in macos ios ios-simulator; do
-      local lib_file="$BUILD_DIR/libs/$module/${module}-${platform}.a"
+      local lib_file="$BUILD_DIR/libs/$module/lib${module}-${platform}.a"
       if [[ -f "$lib_file" ]]; then
         args="$args -library $lib_file -headers $BUILD_DIR/headers/$module"
       fi
@@ -215,20 +298,45 @@ create_xcframeworks() {
           continue
         }
 
-      # 复制 swiftmodule 到 xcframework
+      # 复制所有依赖的 swiftmodule 到 xcframework
+      local swift_deps=$(get_swift_deps_for_module "$module")
+
       for platform in macos ios ios-simulator; do
         case "$platform" in
-          macos) slice_dir="macos-arm64_x86_64" ;;
+          macos) slice_dir="macos-arm64_x86_64" ;;  # xcodebuild 生成的实际目录名
           ios) slice_dir="ios-arm64" ;;
           ios-simulator) slice_dir="ios-arm64_x86_64-simulator" ;;
         esac
 
-        local xcf_modules_dir="$OUTPUT_DIR/${module}.xcframework/${slice_dir}/Modules"
-        if [[ -d "$OUTPUT_DIR/${module}.xcframework/${slice_dir}" ]]; then
-          mkdir -p "$xcf_modules_dir/${module}.swiftmodule"
+        local xcf_slice="$OUTPUT_DIR/${module}.xcframework/${slice_dir}"
+        if [[ -d "$xcf_slice" ]]; then
+          # SPM 只将 Headers 目录添加到 -I 搜索路径
+          # 所以需要将 swiftmodule 放到 Headers 目录中
+          local xcf_headers_dir="$xcf_slice/Headers"
+
+          # 复制主模块的 swiftmodule 到 Headers 目录
+          mkdir -p "$xcf_headers_dir/${module}.swiftmodule"
           if [[ -d "$BUILD_DIR/modules/$module/${platform}" ]]; then
-            cp -r "$BUILD_DIR/modules/$module/${platform}/"* "$xcf_modules_dir/${module}.swiftmodule/" 2>/dev/null || true
+            cp -r "$BUILD_DIR/modules/$module/${platform}/"* "$xcf_headers_dir/${module}.swiftmodule/" 2>/dev/null || true
           fi
+
+          # 复制所有依赖的 swiftmodule 到 Headers 目录
+          local dep_count=0
+          for dep in $swift_deps; do
+            local swiftmodule_dir="$DERIVED_DATA/Build/Products"
+            case "$platform" in
+              macos) swiftmodule_dir="$swiftmodule_dir/Release" ;;
+              ios) swiftmodule_dir="$swiftmodule_dir/Release-iphoneos" ;;
+              ios-simulator) swiftmodule_dir="$swiftmodule_dir/Release-iphonesimulator" ;;
+            esac
+            swiftmodule_dir="$swiftmodule_dir/${dep}.swiftmodule"
+
+            if [[ -d "$swiftmodule_dir" ]]; then
+              cp -r "$swiftmodule_dir" "$xcf_headers_dir/" 2>/dev/null || true
+              dep_count=$((dep_count + 1))
+            fi
+          done
+          log_success "    ${platform}: 复制 $dep_count 个依赖 swiftmodule"
         fi
       done
 
