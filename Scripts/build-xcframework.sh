@@ -22,7 +22,9 @@ MODULES="MLXLMCommon MLXLLM MLXVLM"
 ALL_DEPS="_NumericsShims RealModule ComplexModule Numerics InternalCollectionsUtilities OrderedCollections Jinja Hub Tokenizers Generation Models Cmlx MLX MLXRandom MLXNN MLXOptimizers MLXFast MLXLinalg"
 
 # Swift 依赖模块（需要复制 swiftmodule）
-SWIFT_DEPS="RealModule ComplexModule Numerics InternalCollectionsUtilities OrderedCollections Jinja Hub Tokenizers Generation Models MLX MLXRandom MLXNN MLXOptimizers MLXFast MLXLinalg"
+# 注意：不包含公共依赖（swift-collections, swift-numerics），因为 OpenCat 可能已经依赖它们
+# 只包含 mlx-swift 和 swift-transformers 特有的模块
+SWIFT_DEPS="Jinja Hub Tokenizers Generation Models MLX MLXRandom MLXNN MLXOptimizers MLXFast MLXLinalg"
 
 # 颜色输出
 log_info() { echo -e "\033[0;34m[INFO]\033[0m $1"; }
@@ -160,30 +162,9 @@ collect_build_artifacts() {
       fi
     done
 
-    # 创建头文件（使用唯一文件名避免冲突）
-    cat > "$BUILD_DIR/headers/$module/${module}.h" << EOF
-// ${module} - MLXBinary XCFramework
-// 包含 mlx-swift-lm 及所有依赖
-
-#import <Foundation/Foundation.h>
-
-//! Project version number for ${module}.
-FOUNDATION_EXPORT double ${module}VersionNumber;
-
-//! Project version string for ${module}.
-FOUNDATION_EXPORT const unsigned char ${module}VersionString[];
-EOF
-
-    # 创建模块特定的 modulemap（使用唯一文件名如 MLXLMCommon.modulemap 避免冲突）
-    cat > "$BUILD_DIR/headers/$module/${module}.modulemap" << EOF
-module ${module} {
-    header "${module}.h"
-    export *
-}
-EOF
-
     # 收集 C 模块头文件（仅 MLXLMCommon 包含公共头文件）
-    # Cmlx 和 _NumericsShims 已有唯一目录名，直接放在 Headers 根目录
+    # MLXLLM 和 MLXVLM 不包含头文件，避免与 MLXLMCommon 冲突
+    # 直接放在 Headers 根目录（它们有唯一目录名不会冲突）
     if [[ "$module" == "MLXLMCommon" ]]; then
       # Cmlx 头文件
       local cmlx_include="$DERIVED_DATA/SourcePackages/checkouts/mlx-swift/Source/Cmlx/include"
@@ -229,14 +210,9 @@ MODULEMAP
         log_success "    复制 Cmlx 头文件"
       fi
 
-      # _NumericsShims 头文件
-      local numerics_include="$DERIVED_DATA/SourcePackages/checkouts/swift-numerics/Sources/_NumericsShims/include"
-      if [[ -d "$numerics_include" ]]; then
-        mkdir -p "$BUILD_DIR/headers/$module/_NumericsShims"
-        cp -r "$numerics_include/"* "$BUILD_DIR/headers/$module/_NumericsShims/"
-        chmod -R u+w "$BUILD_DIR/headers/$module/_NumericsShims/"
-        log_success "    复制 _NumericsShims 头文件"
-      fi
+      # 注意：不复制 _NumericsShims 头文件
+      # 因为 Package.swift 已经声明了对 swift-numerics 的依赖
+      # 由 swift-numerics 包自己提供这些头文件，避免重复定义
     fi
 
     # 收集 swiftmodule 文件（主模块）
@@ -289,7 +265,12 @@ create_xcframeworks() {
     for platform in macos ios ios-simulator; do
       local lib_file="$BUILD_DIR/libs/$module/lib${module}-${platform}.a"
       if [[ -f "$lib_file" ]]; then
-        args="$args -library $lib_file -headers $BUILD_DIR/headers/$module"
+        # 只有 MLXLMCommon 有 C 头文件，其他模块不传 -headers 避免冲突
+        if [[ "$module" == "MLXLMCommon" ]]; then
+          args="$args -library $lib_file -headers $BUILD_DIR/headers/$module"
+        else
+          args="$args -library $lib_file"
+        fi
       fi
     done
 
@@ -303,6 +284,9 @@ create_xcframeworks() {
         }
 
       # 复制所有依赖的 swiftmodule 到 xcframework
+      # 关键：swiftmodule 必须放在 slice 根目录（与 .a 同级），不能放在 Headers 子目录
+      # 因为 Xcode 的 ProcessXCFramework 会把 Headers 内容复制到 include/
+      # 但 Swift 编译器的 -I 搜索路径不包含 include/，只包含根目录
       local swift_deps=$(get_swift_deps_for_module "$module")
 
       for platform in macos ios ios-simulator; do
@@ -314,17 +298,16 @@ create_xcframeworks() {
 
         local xcf_slice="$OUTPUT_DIR/${module}.xcframework/${slice_dir}"
         if [[ -d "$xcf_slice" ]]; then
-          # SPM 将 Headers 目录添加到 -I 搜索路径
-          # swiftmodule 直接放 Headers（它们有唯一名称如 MLXLMCommon.swiftmodule）
-          local xcf_headers_dir="$xcf_slice/Headers"
+          # swiftmodule 放在 slice 根目录（与 .a 库同级）
+          # 这样 ProcessXCFramework 会把它们复制到 .../Debug/ 而不是 .../Debug/include/
 
-          # 复制主模块的 swiftmodule 到 Headers 目录
-          mkdir -p "$xcf_headers_dir/${module}.swiftmodule"
+          # 复制主模块的 swiftmodule
+          mkdir -p "$xcf_slice/${module}.swiftmodule"
           if [[ -d "$BUILD_DIR/modules/$module/${platform}" ]]; then
-            cp -r "$BUILD_DIR/modules/$module/${platform}/"* "$xcf_headers_dir/${module}.swiftmodule/" 2>/dev/null || true
+            cp -r "$BUILD_DIR/modules/$module/${platform}/"* "$xcf_slice/${module}.swiftmodule/" 2>/dev/null || true
           fi
 
-          # 复制所有依赖的 swiftmodule 到 Headers 目录
+          # 复制所有依赖的 swiftmodule
           local dep_count=0
           for dep in $swift_deps; do
             local swiftmodule_dir="$DERIVED_DATA/Build/Products"
@@ -336,13 +319,16 @@ create_xcframeworks() {
             swiftmodule_dir="$swiftmodule_dir/${dep}.swiftmodule"
 
             if [[ -d "$swiftmodule_dir" ]]; then
-              cp -r "$swiftmodule_dir" "$xcf_headers_dir/" 2>/dev/null || true
+              cp -r "$swiftmodule_dir" "$xcf_slice/" 2>/dev/null || true
               dep_count=$((dep_count + 1))
             fi
           done
-          log_success "    ${platform}: 复制 $dep_count 个依赖 swiftmodule"
+          log_success "    ${platform}: 复制 $dep_count 个依赖 swiftmodule 到 slice 根目录"
         fi
       done
+
+      # MLXLLM 和 MLXVLM 没有 C 头文件，不需要 HeadersPath
+      # 只有 MLXLMCommon 有 Headers 目录（包含 Cmlx 和 _NumericsShims）
 
       log_success "  ${module}.xcframework 创建成功"
     fi
