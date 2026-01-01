@@ -82,10 +82,12 @@ build_platform() {
 build_all_platforms() {
   log_info "开始构建所有平台..."
 
-  # 测试阶段：只构建 arm64 macOS
-  build_platform "macos" "platform=macOS,arch=arm64"
-  # build_platform "ios" "generic/platform=iOS"
-  # build_platform "ios-simulator" "generic/platform=iOS Simulator"
+  # macOS: arm64 + x86_64 (Universal)
+  build_platform "macos" "platform=macOS"
+  # iOS: arm64
+  build_platform "ios" "generic/platform=iOS"
+  # iOS Simulator: arm64 + x86_64
+  build_platform "ios-simulator" "generic/platform=iOS Simulator"
 
   log_success "所有平台构建完成"
 }
@@ -219,7 +221,7 @@ MODULEMAP
     for platform in macos ios ios-simulator; do
       case "$platform" in
         macos)
-          archs="arm64"  # arm64 only for testing
+          archs="arm64 x86_64"
           triple_suffix="macos"
           build_config="Release"
           ;;
