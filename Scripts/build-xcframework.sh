@@ -107,13 +107,16 @@ get_swift_deps_for_module() {
   local module="$1"
   case "$module" in
     MLXLMCommon)
+      # MLXLMCommon 包含所有公共依赖的 swiftmodule
       echo "$SWIFT_DEPS MLXLMCommon"
       ;;
     MLXLLM)
-      echo "$SWIFT_DEPS MLXLMCommon MLXLLM"
+      # MLXLLM 只包含自己的 swiftmodule，避免与 MLXLMCommon 冲突
+      echo "MLXLLM"
       ;;
     MLXVLM)
-      echo "$SWIFT_DEPS MLXLMCommon MLXVLM"
+      # MLXVLM 只包含自己的 swiftmodule，避免与 MLXLMCommon 冲突
+      echo "MLXVLM"
       ;;
   esac
 }
