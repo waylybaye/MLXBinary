@@ -96,13 +96,17 @@ get_deps_for_module() {
   local module="$1"
   case "$module" in
     MLXLMCommon)
+      # MLXLMCommon 独家承担所有共享 .o（MLX/Cmlx/Numerics/ComplexModule/MLXNN/MLXOptimizers 等）。
       echo "$ALL_DEPS MLXLMCommon"
       ;;
     MLXLLM)
-      echo "$ALL_DEPS MLXLMCommon MLXLLM"
+      # MLXLLM / MLXVLM 只保留自家 .o。共享符号由 libMLXLMCommon.a 提供，
+      # MLXLLMWrapper / MLXVLMWrapper 都声明了对 MLXLMCommonWrapper 的依赖，
+      # SwiftPM 会把三份 .a 都加进链接命令，避免下游项目同时引用多份库时出现 duplicate symbol。
+      echo "MLXLLM"
       ;;
     MLXVLM)
-      echo "$ALL_DEPS MLXLMCommon MLXVLM"
+      echo "MLXVLM"
       ;;
   esac
 }
