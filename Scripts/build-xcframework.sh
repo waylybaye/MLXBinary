@@ -19,7 +19,10 @@ DERIVED_DATA="${BUILD_DIR}/DerivedData"
 MODULES="MLXLMCommon MLXLLM MLXVLM"
 
 # 所有依赖模块（按依赖顺序）
-ALL_DEPS="_NumericsShims RealModule ComplexModule Numerics InternalCollectionsUtilities OrderedCollections Jinja Hub Tokenizers Generation Models Cmlx MLX MLXRandom MLXNN MLXOptimizers MLXFast MLXLinalg"
+# 注意：不包含 swift-numerics / swift-collections / swift-transformers 的模块
+# 它们是 mlx-swift-lm 的传递依赖，通过 Package.swift 的 MLXLMCommonWrapper 由下游源码提供，
+# 如果这里再把它们的 .o 塞进 libMLXLMCommon.a 会造成 duplicate symbol
+ALL_DEPS="Cmlx MLX MLXRandom MLXNN MLXOptimizers MLXFast MLXLinalg"
 
 # Swift 依赖模块（需要复制 swiftmodule）
 # 注意：不包含公共依赖（swift-collections, swift-numerics），因为 OpenCat 可能已经依赖它们
