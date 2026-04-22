@@ -263,6 +263,61 @@ MODULEMAP
   log_success "构建产物收集完成"
 }
 
+# ----------------------------------------------------------------------------
+# 把 mlx-swift 的 Metal shader 资源 bundle（`mlx-swift_Cmlx.bundle`，内含
+# `default.metallib`）从 DerivedData 拷到源码树，随 Package.swift 作为 SPM
+# 资源一并分发。不拷这一份的话，消费侧运行时会抛
+# `Failed to load the default metallib`（见 mlx/backend/metal/device.cpp）。
+# ----------------------------------------------------------------------------
+collect_metallibs() {
+  log_info "收集 metallib 资源 bundle..."
+
+  # 目标 -> 来源：目标目录下保留 mlx-swift_Cmlx.bundle 原始结构，
+  # 以便消费侧（OpenCat MLXClient）按嵌套路径直接查找。
+  local pairs=(
+    "MLXMetalLibMacOS:Release"
+    "MLXMetalLibIOS:Release-iphoneos"
+  )
+
+  for pair in "${pairs[@]}"; do
+    local target_name="${pair%%:*}"
+    local product_dir="${pair##*:}"
+
+    local src_bundle="$DERIVED_DATA/Build/Products/${product_dir}/mlx-swift_Cmlx.bundle"
+    local dst_root="$PROJECT_ROOT/Sources/${target_name}/Resources"
+    local dst_bundle="$dst_root/mlx-swift_Cmlx.bundle"
+
+    if [[ ! -d "$src_bundle" ]]; then
+      log_warning "    找不到 ${product_dir}/mlx-swift_Cmlx.bundle，跳过 $target_name"
+      continue
+    fi
+
+    mkdir -p "$dst_root"
+    rm -rf "$dst_bundle"
+    cp -R "$src_bundle" "$dst_root/"
+    chmod -R u+w "$dst_bundle"
+
+    # 去掉签名残留，避免 SPM 在消费侧再次签名时冲突
+    rm -rf "$dst_bundle/_CodeSignature" "$dst_bundle/Contents/_CodeSignature"
+
+    local metallib
+    if [[ -f "$dst_bundle/Contents/Resources/default.metallib" ]]; then
+      metallib="$dst_bundle/Contents/Resources/default.metallib"
+    elif [[ -f "$dst_bundle/default.metallib" ]]; then
+      metallib="$dst_bundle/default.metallib"
+    else
+      log_warning "    ${target_name}: 复制后找不到 default.metallib"
+      continue
+    fi
+
+    local size
+    size=$(du -h "$metallib" | cut -f1)
+    log_success "    ${target_name}: 同步 default.metallib ($size)"
+  done
+
+  log_success "metallib 资源同步完成"
+}
+
 create_xcframeworks() {
   log_info "创建 XCFrameworks..."
 
@@ -438,6 +493,7 @@ main() {
   clone_source
   build_all_platforms
   collect_build_artifacts
+  collect_metallibs
   create_xcframeworks
   package_and_checksum
   update_package_swift
