@@ -8,11 +8,32 @@ import PackageDescription
 let version = "2.0.1"
 let baseURL = "https://github.com/waylybaye/MLXBinary/releases/download"
 
+// 默认使用远端 Release 里的 xcframework.zip + checksum。
+// 本地联调时设置环境变量 MLX_BINARY_LOCAL=1，改走 output/ 下的本地 zip。
+// 例如：MLX_BINARY_LOCAL=1 swift package resolve
+let useLocalBinaries = ProcessInfo.processInfo.environment["MLX_BINARY_LOCAL"] != nil
+
+// 统一的 binaryTarget 工厂：根据 useLocalBinaries 决定走 path 还是 url+checksum。
+// checksum 只有远端模式生效，本地模式忽略；新发版时由 `make release` 刷新。
+func mlxBinaryTarget(name: String, checksum: String) -> Target {
+  if useLocalBinaries {
+    return .binaryTarget(
+      name: name,
+      path: "output/\(name).xcframework.zip"
+    )
+  }
+  return .binaryTarget(
+    name: name,
+    url: "\(baseURL)/\(version)/\(name).xcframework.zip",
+    checksum: checksum
+  )
+}
+
 let package = Package(
   name: "MLXBinary",
   platforms: [
     .macOS(.v14),
-    .iOS(.v16)
+    .iOS(.v17)
   ],
   products: [
     // 单独产品 - 用户可按需引入
@@ -31,34 +52,27 @@ let package = Package(
   ],
   targets: [
     // ===== Binary Targets =====
-    // 本地测试：使用本地 xcframework
-    // .binaryTarget(
-    //   name: "MLXLMCommon",
-    //   path: "output/MLXLMCommon.xcframework.zip"
-    // ),
-    // .binaryTarget(
-    //   name: "MLXLLM",
-    //   path: "output/MLXLLM.xcframework.zip"
-    // ),
-    // .binaryTarget(
-    //   name: "MLXVLM",
-    //   path: "output/MLXVLM.xcframework.zip"
-    // ),
-    // 发布时使用远程 URL：
-    .binaryTarget(
-      name: "MLXLMCommon",
-      url: "\(baseURL)/\(version)/MLXLMCommon.xcframework.zip",
-      checksum: "2c7d14d809f9ec318b82508d83f73d020f9c60dcffa6f40c115079512024695a"
+    // 默认远端；设 MLX_BINARY_LOCAL=1 走 output/ 下的本地 zip（联调用）。
+    // checksum 由 `make release` 自动刷新，不要手工编辑。
+    mlxBinaryTarget(name: "MLXLMCommon", checksum: "f4a2f371dfd2f1e16caf77ef1db26139190a2bd2b77a911243190e88fd7ec67a"),
+    mlxBinaryTarget(name: "MLXLLM",      checksum: "ed057a4bd47d14197ee3ed3ad6f920790110c2c0405a0e9038bb83a620c70fec"),
+    mlxBinaryTarget(name: "MLXVLM",      checksum: "f4a2f371dfd2f1e16caf77ef1db26139190a2bd2b77a911243190e88fd7ec67a"),
+
+    // ===== Metal Library Resource Targets =====
+    // mlx-swift 在源码构建时由 SwiftPM 把 Cmlx 的 Metal shaders 打成 `mlx-swift_Cmlx.bundle`。
+    // 二进制分发时 .xcframework 只带 .a，不带这个资源 bundle。
+    // 这里用两个按平台条件生效的 resource-only target 把 metallib 带回去。
+    // 消费侧 SPM 会把它们产出到 `MLXBinary_MLXMetalLib<Platform>.bundle` 里，
+    // OpenCat 的 `MLXClient.swift` 会扫描嵌套的 `mlx-swift_Cmlx.bundle/default.metallib` 并加载。
+    .target(
+      name: "MLXMetalLibMacOS",
+      path: "Sources/MLXMetalLibMacOS",
+      resources: [.copy("Resources/mlx-swift_Cmlx.bundle")]
     ),
-    .binaryTarget(
-      name: "MLXLLM",
-      url: "\(baseURL)/\(version)/MLXLLM.xcframework.zip",
-      checksum: "7758100983e72051b88c4cdeab6832a86883aff57ce06187aea36adde605ea0d"
-    ),
-    .binaryTarget(
-      name: "MLXVLM",
-      url: "\(baseURL)/\(version)/MLXVLM.xcframework.zip",
-      checksum: "f419d1afe9e45cb635eb876438e3dc679444b460baa1e1b4507bdca8143206bf"
+    .target(
+      name: "MLXMetalLibIOS",
+      path: "Sources/MLXMetalLibIOS",
+      resources: [.copy("Resources/mlx-swift_Cmlx.bundle")]
     ),
 
     // ===== Wrapper Targets =====
@@ -69,6 +83,8 @@ let package = Package(
         "MLXLMCommon",
         .product(name: "Numerics", package: "swift-numerics"),
         .product(name: "Collections", package: "swift-collections"),
+        .target(name: "MLXMetalLibMacOS", condition: .when(platforms: [.macOS])),
+        .target(name: "MLXMetalLibIOS", condition: .when(platforms: [.iOS])),
       ],
       path: "Sources/MLXLMCommonWrapper"
     ),
