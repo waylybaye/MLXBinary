@@ -78,9 +78,13 @@ release:
 		echo "\033[0;31m[ERROR]\033[0m 未指定 RELEASE。用法：make release RELEASE=2.0.2"; \
 		exit 1; \
 	fi
-	@if ! echo "$(RELEASE)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$'; then \
-		echo "\033[0;31m[ERROR]\033[0m RELEASE 必须是语义化版本（x.y.z），得到：$(RELEASE)"; \
+	@if ! echo "$(RELEASE)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$$'; then \
+		echo "\033[0;31m[ERROR]\033[0m RELEASE 必须是 SemVer（x.y.z[-pre][+build]），得到：$(RELEASE)"; \
 		exit 1; \
+	fi
+	@if echo "$(RELEASE)" | grep -q '+'; then \
+		echo "\033[1;33m[WARNING]\033[0m 版本号含 '+'。Release 下载 URL 里 '+' 容易被部分客户端误解为空格，"; \
+		echo "           如果 swift package resolve 时报 404，改用 pre-release 格式（如 3.31.3-1）更稳。"; \
 	fi
 	@for m in $(MODULES); do \
 		if [ ! -f "$(OUTPUT_DIR)/$$m.xcframework.zip" ]; then \
