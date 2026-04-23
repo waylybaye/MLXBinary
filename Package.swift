@@ -5,7 +5,7 @@ import Foundation
 import PackageDescription
 
 // 版本配置
-let version = "3.31.3-1"
+let version = "3.31.3-2"
 let baseURL = "https://github.com/waylybaye/MLXBinary/releases/download"
 
 // 默认使用远端 Release 里的 xcframework.zip + checksum。
@@ -54,9 +54,9 @@ let package = Package(
     // ===== Binary Targets =====
     // 默认远端；设 MLX_BINARY_LOCAL=1 走 output/ 下的本地 zip（联调用）。
     // checksum 由 `make release` 自动刷新，不要手工编辑。
-    mlxBinaryTarget(name: "MLXLMCommon", checksum: "2842643188f97cde20be2ae0ceecd6a2162450bb654d761aae4b3f8d8029371c"),
-    mlxBinaryTarget(name: "MLXLLM",      checksum: "ed057a4bd47d14197ee3ed3ad6f920790110c2c0405a0e9038bb83a620c70fec"),
-    mlxBinaryTarget(name: "MLXVLM",      checksum: "f4a2f371dfd2f1e16caf77ef1db26139190a2bd2b77a911243190e88fd7ec67a"),
+    mlxBinaryTarget(name: "MLXLMCommon", checksum: "a159fbfd19eafee77bf45ab57ef390ffbb5652f2e8c9d1bc24d7c5cf03e1a771"),
+    mlxBinaryTarget(name: "MLXLLM",      checksum: "3d97f582d67b6fd345c4f72a3aa952268c65f964bb87eadb437deae88ca07d30"),
+    mlxBinaryTarget(name: "MLXVLM",      checksum: "7db1f19ef1e88b921b29bcf82e59df8f677acdfdf75675e163412822bb607883"),
 
     // ===== Metal Library Resource Targets =====
     // mlx-swift 在源码构建时由 SwiftPM 把 Cmlx 的 Metal shaders 打成 `mlx-swift_Cmlx.bundle`。
