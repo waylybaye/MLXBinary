@@ -25,16 +25,11 @@ concurrency:
 jobs:
   build:
     name: Build XCFrameworks (verify)
-    runs-on: macos-14
+    runs-on: macos-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: "26.3"
 
       - name: Print environment info
         run: |
