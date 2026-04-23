@@ -5,7 +5,7 @@ import Foundation
 import PackageDescription
 
 // 版本配置
-let version = "2.0.1"
+let version = "3.31.4"
 let baseURL = "https://github.com/waylybaye/MLXBinary/releases/download"
 
 // 默认使用远端 Release 里的 xcframework.zip + checksum。
@@ -54,7 +54,7 @@ let package = Package(
     // ===== Binary Targets =====
     // 默认远端；设 MLX_BINARY_LOCAL=1 走 output/ 下的本地 zip（联调用）。
     // checksum 由 `make release` 自动刷新，不要手工编辑。
-    mlxBinaryTarget(name: "MLXLMCommon", checksum: "f4a2f371dfd2f1e16caf77ef1db26139190a2bd2b77a911243190e88fd7ec67a"),
+    mlxBinaryTarget(name: "MLXLMCommon", checksum: "2842643188f97cde20be2ae0ceecd6a2162450bb654d761aae4b3f8d8029371c"),
     mlxBinaryTarget(name: "MLXLLM",      checksum: "ed057a4bd47d14197ee3ed3ad6f920790110c2c0405a0e9038bb83a620c70fec"),
     mlxBinaryTarget(name: "MLXVLM",      checksum: "f4a2f371dfd2f1e16caf77ef1db26139190a2bd2b77a911243190e88fd7ec67a"),
 
