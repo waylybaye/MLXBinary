@@ -225,41 +225,25 @@ collect_build_artifacts() {
       # Cmlx 头文件
       local cmlx_include="$DERIVED_DATA/SourcePackages/checkouts/mlx-swift/Source/Cmlx/include"
       if [[ -d "$cmlx_include" ]]; then
-        mkdir -p "$BUILD_DIR/headers/$module/Cmlx"
-        cp -r "$cmlx_include/"* "$BUILD_DIR/headers/$module/Cmlx/"
-        chmod -R u+w "$BUILD_DIR/headers/$module/Cmlx/"
+        # 直接平铺到 headers/$module/ 根目录，不要多嵌一层 Cmlx/。
+        # 因为消费端只把 Headers/ 加到 -I 搜索路径，#include "mlx/c/array.h"
+        # 需要在 -I 路径下直接解析到 mlx/c/array.h，多嵌一层就找不到。
+        cp -r "$cmlx_include/"* "$BUILD_DIR/headers/$module/"
+        chmod -R u+w "$BUILD_DIR/headers/$module/"
 
-        # 创建自定义 modulemap
-        cat > "$BUILD_DIR/headers/$module/Cmlx/module.modulemap" << 'MODULEMAP'
+        # 使用和上游 mlx-swift 完全一致的 modulemap 形式：单个 umbrella 头。
+        # mlx.h 自身 #include 了 mlx/c/mlx.h / transforms_impl.h / linalg.h / fast.h
+        # 这四个入口，间接展开全部类型。
+        #
+        # 注意：历史上这里曾经写成 "textual header"（见 git commit d2dec26）。
+        # 那样做在非 LE 模式下能工作 —— Swift 从序列化 swiftmodule 直接拿类型，
+        # 不经过 Clang importer。但开了 Library Evolution 后消费端按 .swiftinterface
+        # 重新编译，需要通过 Clang importer 按名字 resolve `Cmlx.mlx_dtype` 这类类型，
+        # textual 头不会被并入 Clang 模块，类型查不到就会报 "no type named 'mlx_dtype'
+        # in module 'Cmlx'"。因此这里必须用普通 `header`。
+        cat > "$BUILD_DIR/headers/$module/module.modulemap" << 'MODULEMAP'
 module Cmlx [system] {
-    textual header "mlx.h"
-    textual header "mlx/c/mlx.h"
-    textual header "mlx/c/array.h"
-    textual header "mlx/c/closure.h"
-    textual header "mlx/c/compile.h"
-    textual header "mlx/c/device.h"
-    textual header "mlx/c/distributed.h"
-    textual header "mlx/c/distributed_group.h"
-    textual header "mlx/c/error.h"
-    textual header "mlx/c/export.h"
-    textual header "mlx/c/fast.h"
-    textual header "mlx/c/fft.h"
-    textual header "mlx/c/half.h"
-    textual header "mlx/c/io.h"
-    textual header "mlx/c/io_types.h"
-    textual header "mlx/c/linalg.h"
-    textual header "mlx/c/map.h"
-    textual header "mlx/c/memory.h"
-    textual header "mlx/c/metal.h"
-    textual header "mlx/c/ops.h"
-    textual header "mlx/c/optional.h"
-    textual header "mlx/c/random.h"
-    textual header "mlx/c/stream.h"
-    textual header "mlx/c/string.h"
-    textual header "mlx/c/transforms.h"
-    textual header "mlx/c/transforms_impl.h"
-    textual header "mlx/c/vector.h"
-    textual header "mlx/c/version.h"
+    header "mlx.h"
     export *
 }
 MODULEMAP
