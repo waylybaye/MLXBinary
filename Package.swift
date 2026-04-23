@@ -24,7 +24,7 @@ func mlxBinaryTarget(name: String, checksum: String) -> Target {
   }
   return .binaryTarget(
     name: name,
-    url: "\(baseURL)/\(version)/\(name).xcframework.zip",
+    url: "\(baseURL)/v\(version)/\(name).xcframework.zip",
     checksum: checksum
   )
 }

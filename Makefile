@@ -109,7 +109,7 @@ release:
 	fi
 	@git add Package.swift
 	@git commit -m "chore: release v$(RELEASE)"
-	@git tag "v$(RELEASE)"
+	@git tag -a "v$(RELEASE)" -m "Release v$(RELEASE)"
 	@echo ""
 	@echo "\033[0;32m[SUCCESS]\033[0m 已创建 commit + tag v$(RELEASE)（未 push）"
 	@echo "           下一步：make push"
@@ -119,7 +119,8 @@ release:
 # 用法：make push
 # ---------------------------------------------------------------------------
 push:
-	@RELEASE=$$(grep -E '^let version = ' Package.swift | sed -E 's/.*"([^"]+)".*/\1/'); \
+	@set -e; \
+	RELEASE=$$(grep -E '^let version = ' Package.swift | sed -E 's/.*"([^"]+)".*/\1/'); \
 	if [ -z "$$RELEASE" ]; then \
 		echo "\033[0;31m[ERROR]\033[0m 无法从 Package.swift 解析 let version"; \
 		exit 1; \
@@ -134,8 +135,10 @@ push:
 			exit 1; \
 		fi; \
 	done; \
-	echo "\033[0;34m[INFO]\033[0m 推送 commit + tag v$$RELEASE"; \
-	git push origin HEAD --follow-tags; \
+	echo "\033[0;34m[INFO]\033[0m 推送 commit 到 origin"; \
+	git push origin HEAD; \
+	echo "\033[0;34m[INFO]\033[0m 推送 tag v$$RELEASE 到 origin"; \
+	git push origin "refs/tags/v$$RELEASE"; \
 	echo "\033[0;34m[INFO]\033[0m 创建 GitHub Release v$$RELEASE 并上传 zip"; \
 	gh release create "v$$RELEASE" \
 		$(OUTPUT_DIR)/MLXLMCommon.xcframework.zip \
