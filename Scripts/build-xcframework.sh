@@ -331,10 +331,21 @@ collect_metallibs() {
     # 去掉签名残留，避免 SPM 在消费侧再次签名时冲突
     rm -rf "$dst_bundle/_CodeSignature" "$dst_bundle/Contents/_CodeSignature"
 
+    # 规范化到平铺结构：
+    #   mlx-swift_Cmlx.bundle/Info.plist
+    #   mlx-swift_Cmlx.bundle/default.metallib
+    # 新版 Xcode/SDK 在 macOS Release 产出的是嵌套的 Contents/Resources/… 结构，
+    # 但历史上消费侧（OpenCat 的 MLXClient.swift）按 **平铺** 路径定位 metallib，
+    # 换成嵌套结构会导致运行时 "Failed to load the default metallib"。
+    # iOS bundle 本来就是平铺的，不需要处理，这个分支对 iOS 是 no-op。
+    if [[ -d "$dst_bundle/Contents" ]]; then
+      [[ -f "$dst_bundle/Contents/Info.plist" ]] && mv -f "$dst_bundle/Contents/Info.plist" "$dst_bundle/Info.plist"
+      [[ -f "$dst_bundle/Contents/Resources/default.metallib" ]] && mv -f "$dst_bundle/Contents/Resources/default.metallib" "$dst_bundle/default.metallib"
+      rm -rf "$dst_bundle/Contents"
+    fi
+
     local metallib
-    if [[ -f "$dst_bundle/Contents/Resources/default.metallib" ]]; then
-      metallib="$dst_bundle/Contents/Resources/default.metallib"
-    elif [[ -f "$dst_bundle/default.metallib" ]]; then
+    if [[ -f "$dst_bundle/default.metallib" ]]; then
       metallib="$dst_bundle/default.metallib"
     else
       log_warning "    ${target_name}: 复制后找不到 default.metallib"
