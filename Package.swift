@@ -5,7 +5,7 @@ import Foundation
 import PackageDescription
 
 // 版本配置
-let version = "3.31.3-3"
+let version = "3.31.3-4"
 let baseURL = "https://github.com/waylybaye/MLXBinary/releases/download"
 
 // 默认使用远端 Release 里的 xcframework.zip + checksum。
