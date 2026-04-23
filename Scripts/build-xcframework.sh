@@ -57,6 +57,46 @@ clone_source() {
   log_success "源码克隆完成"
 }
 
+# ----------------------------------------------------------------------------
+# 为 Library Evolution 模式打上游补丁。
+#
+# 背景：打开 BUILD_LIBRARY_FOR_DISTRIBUTION=YES 后，上游 mlx-swift 的
+# public enum `MLXFast.ScaledDotProductAttentionMaskMode` 变成 resilient，
+# 外部对它做穷举 switch 的代码必须新增 `@unknown default:` 分支，否则编译失败。
+# 这两处都是 mlx-swift-lm 源码里的老代码，上游未兼容 LE，这里手工补。
+# ----------------------------------------------------------------------------
+patch_source_for_library_evolution() {
+  log_info "为 Library Evolution 打上游补丁..."
+
+  local src_root="$BUILD_DIR/mlx-swift-lm"
+
+  # Patch 1: MLXLMCommon/KVCache.swift —— quantizedScaledDotProductAttention 里的 mask switch
+  local kvcache="$src_root/Libraries/MLXLMCommon/KVCache.swift"
+  if [[ -f "$kvcache" ]] && ! grep -q "@unknown default" "$kvcache"; then
+    perl -i -0777 -pe 's/(    case \.none:\n        break\n)(    \})/$1    \@unknown default:\n        break\n$2/' "$kvcache"
+    if grep -q "@unknown default" "$kvcache"; then
+      log_success "  patched KVCache.swift"
+    else
+      log_error "  patch KVCache.swift 失败（perl 替换未命中，上游代码可能已变动）"
+      exit 1
+    fi
+  fi
+
+  # Patch 2: MLXVLM/Models/Gemma4.swift —— gemma4AdjustAttentionMask 里的 mask switch
+  local gemma4="$src_root/Libraries/MLXVLM/Models/Gemma4.swift"
+  if [[ -f "$gemma4" ]] && ! grep -q "@unknown default" "$gemma4"; then
+    perl -i -0777 -pe 's/(    case \.arrays, \.causal, \.none:\n        return mask\n)(    \})/$1    \@unknown default:\n        return mask\n$2/' "$gemma4"
+    if grep -q "@unknown default" "$gemma4"; then
+      log_success "  patched Gemma4.swift"
+    else
+      log_error "  patch Gemma4.swift 失败（perl 替换未命中，上游代码可能已变动）"
+      exit 1
+    fi
+  fi
+
+  log_success "上游补丁应用完成"
+}
+
 build_platform() {
   local platform="$1"
   local destination="$2"
@@ -68,12 +108,19 @@ build_platform() {
   for module in $MODULES; do
     log_info "  构建模块: $module"
 
+    # BUILD_LIBRARY_FOR_DISTRIBUTION=YES 让编译器产出 resilient ABI 和 .swiftinterface，
+    # 这是分发二进制能跨 Xcode 版本消费的前提（参考 Apple 系统库）。
+    # -no-verify-emitted-module-interface 关闭 interface 回环校验：mlx-swift 的 @inlinable
+    # 与泛型在严格校验下会报错，先放宽，实际消费侧仍会用 interface 重新编译。
     xcodebuild build \
       -scheme "$module" \
       -destination "$destination" \
       -derivedDataPath "$DERIVED_DATA" \
       -configuration Release \
       ONLY_ACTIVE_ARCH=NO \
+      BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+      SWIFT_EMIT_MODULE_INTERFACE=YES \
+      OTHER_SWIFT_FLAGS='$(inherited) -no-verify-emitted-module-interface' \
       2>&1 | tail -3
 
     log_success "  $module 构建完成"
@@ -458,6 +505,7 @@ main() {
 
   cleanup
   clone_source
+  patch_source_for_library_evolution
   build_all_platforms
   collect_build_artifacts
   collect_metallibs
