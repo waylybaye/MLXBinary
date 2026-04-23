@@ -8,6 +8,7 @@
 #   make build VERSION=0.3.0       # 构建指定版本
 #   make build VERSION=main        # 跟随主干（联调用）
 #   make latest-tag                # 仅查询最新 tag
+#   make release TAG=v2.0.2        # 把 output/ 当前产物发到 GitHub Release
 #   make resolve | checksum | clean
 
 MLX_SWIFT_LM_REPO := https://github.com/ml-explore/mlx-swift-lm.git
@@ -23,7 +24,7 @@ OUTPUT_DIR := output
 BUILD_DIR := .build-xcframework
 
 .DEFAULT_GOAL := build
-.PHONY: build latest-tag resolve checksum clean
+.PHONY: build latest-tag release resolve checksum clean
 
 build:
 	@if [ -z "$(VERSION)" ]; then \
@@ -57,3 +58,32 @@ checksum:
 
 clean:
 	rm -rf $(OUTPUT_DIR) $(BUILD_DIR)
+
+# 将 output/ 下的三个 xcframework zip 发到 GitHub Release。
+# 适用于本地已跑过 make build、不想推 tag 触发 workflow 重新构建的场景；
+# 和 .github/workflows/release.yml 的 v* tag 自动流程互斥，同一 tag 只能走一条路径。
+release:
+	@if [ -z "$(TAG)" ]; then \
+		echo "\033[0;31m[ERROR]\033[0m 请指定 TAG，例如：make release TAG=v2.0.2"; \
+		exit 1; \
+	fi
+	@for m in MLXLMCommon MLXLLM MLXVLM; do \
+		zip="$(OUTPUT_DIR)/$$m.xcframework.zip"; \
+		sha="$(OUTPUT_DIR)/$$m.xcframework.zip.sha256"; \
+		if [ ! -f "$$zip" ] || [ ! -f "$$sha" ]; then \
+			echo "\033[0;31m[ERROR]\033[0m 缺少 $$zip 或 $$sha，请先 make build"; \
+			exit 1; \
+		fi; \
+	done
+	@command -v gh >/dev/null 2>&1 || { echo "\033[0;31m[ERROR]\033[0m 未安装 gh CLI"; exit 1; }
+	@common_sha=$$(cat $(OUTPUT_DIR)/MLXLMCommon.xcframework.zip.sha256); \
+	llm_sha=$$(cat $(OUTPUT_DIR)/MLXLLM.xcframework.zip.sha256); \
+	vlm_sha=$$(cat $(OUTPUT_DIR)/MLXVLM.xcframework.zip.sha256); \
+	notes=$$(printf '## MLXBinary %s\n\nPre-built XCFrameworks for mlx-swift-lm.\n\n### Modules\n- **MLXLLM** - Large Language Model support\n- **MLXVLM** - Vision Language Model support\n- **MLXLMCommon** - Common utilities\n\n### Checksums (SHA256)\n```\nMLXLMCommon: %s\nMLXLLM: %s\nMLXVLM: %s\n```\n' "$(TAG)" "$$common_sha" "$$llm_sha" "$$vlm_sha"); \
+	echo "\033[0;34m[INFO]\033[0m 正在创建 release $(TAG) ..."; \
+	gh release create "$(TAG)" \
+		$(OUTPUT_DIR)/MLXLMCommon.xcframework.zip \
+		$(OUTPUT_DIR)/MLXLLM.xcframework.zip \
+		$(OUTPUT_DIR)/MLXVLM.xcframework.zip \
+		--title "MLXBinary $(TAG)" \
+		--notes "$$notes"

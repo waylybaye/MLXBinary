@@ -1,0 +1,58 @@
+name: CI Build
+
+# 每次 PR / push 到 main 都跑一次完整的 XCFramework 构建，用于验证
+# Scripts/build-xcframework.sh 在最新 mlx-swift-lm tag 下仍可产出三平台 slice。
+# 本 workflow 不发布 Release，发布走 .github/workflows/release.yml（v* tag）。
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - '.gitignore'
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - '.gitignore'
+
+# 同一 ref 连续 push 时取消上一轮未完成的构建，避免浪费 macOS runner 时间。
+# 注意：push 到 main 的构建不取消（main 的每次提交都要留完整记录）。
+concurrency:
+  group: ci-build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    name: Build XCFrameworks (verify)
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Print environment info
+        run: |
+          echo "Xcode version:"
+          xcodebuild -version
+          echo ""
+          echo "Swift version:"
+          swift --version
+
+      - name: Build XCFrameworks
+        run: |
+          chmod +x Scripts/build-xcframework.sh
+          make build
+
+      - name: Verify build outputs
+        run: |
+          set -e
+          for name in MLXLMCommon MLXLLM MLXVLM; do
+            zip="output/$name.xcframework.zip"
+            sha="output/$name.xcframework.zip.sha256"
+            if [ ! -f "$zip" ] || [ ! -f "$sha" ]; then
+              echo "::error::缺少产物 $zip 或 $sha"
+              exit 1
+            fi
+            echo "$name: $(cat $sha)  ($(du -h $zip | cut -f1))"
+          done
